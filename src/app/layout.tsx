@@ -4,8 +4,8 @@ import './globals.css';
 import TanStackProvider from './providers';
 
 export const metadata: Metadata = {
-  title: 'Project Template',
-  description: 'Next.js FSD application template',
+  title: '마법의 소라고동',
+  description: '질문을 적고 고리를 당겨 보세요. 우리 학교만의 마법의 소라고동.',
 };
 
 const RootLayout = ({
