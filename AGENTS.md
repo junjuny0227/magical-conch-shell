@@ -193,3 +193,13 @@ FSD 경계·공개 API·서버/클라이언트 경계를 바꿨다면 최소한 
 - 아직 토큰 저장·갱신과 인증 리다이렉트가 없다. 인증 도입 시 쿠키와 Route Handler/BFF 경계가 필요한지 실제 요구에 따라 검토한다.
 - FSD `app` 레이어를 Next `src/app`과 합쳤고, FSD `pages`는 `views`로 이름을 바꿨다. 라우팅·layout·Provider를 한곳에 유지하기 위한 선택이다.
 - FSD `shared`의 API·config·lib·UI는 모두 `src/shared`에 있다.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
