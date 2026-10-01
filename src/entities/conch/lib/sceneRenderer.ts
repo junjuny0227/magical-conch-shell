@@ -1,8 +1,11 @@
 import {
+  Box3,
   Color,
   DirectionalLight,
   HemisphereLight,
+  Object3D,
   OrthographicCamera,
+  Quaternion,
   Raycaster,
   Scene,
   Vector2,
@@ -12,7 +15,42 @@ import {
 
 import { createConchModel } from './conchModel';
 import { createDemandLoop } from './demandLoop';
-import { createPullState, MAX_PULL_DISTANCE } from './pullState';
+import { createPullState, MAX_PULL_DISTANCE, MAX_WORLD_PULL } from './pullState';
+
+// 화면 방향을 모델 로컬 방향으로 변환하고, 고리/줄 끝만 뷰포트 안에 제한한다.
+// 카메라를 뒤로 빼거나 배율을 줄이지 않아 본체 크기는 그대로 유지된다.
+export const getSafePullOffset = (
+  delta: Vector2,
+  distance: number,
+  camera: OrthographicCamera,
+  root: Object3D,
+  restingBounds: Box3,
+) => {
+  if (delta.lengthSq() === 0) return new Vector3();
+  const world = new Vector3(delta.x, -delta.y, 0)
+    .normalize()
+    .applyQuaternion(camera.quaternion)
+    .multiplyScalar(Math.min(1, Math.max(0, distance) / MAX_PULL_DISTANCE) * MAX_WORLD_PULL);
+  const min = new Vector2(Infinity, Infinity);
+  const max = new Vector2(-Infinity, -Infinity);
+  for (const x of [restingBounds.min.x, restingBounds.max.x])
+    for (const y of [restingBounds.min.y, restingBounds.max.y])
+      for (const z of [restingBounds.min.z, restingBounds.max.z]) {
+        const point = new Vector3(x, y, z).project(camera);
+        min.min(new Vector2(point.x, point.y));
+        max.max(new Vector2(point.x, point.y));
+      }
+  const projected = world.clone().project(camera).sub(new Vector3().project(camera));
+  let scale = 1;
+  for (const axis of ['x', 'y'] as const) {
+    const shift = projected[axis];
+    if (shift > 0) scale = Math.min(scale, (0.96 - max[axis]) / shift);
+    if (shift < 0) scale = Math.min(scale, (-0.96 - min[axis]) / shift);
+  }
+  return world
+    .multiplyScalar(Math.max(0, scale))
+    .applyQuaternion(root.getWorldQuaternion(new Quaternion()).invert());
+};
 
 interface SceneOptionsType {
   getState: () => { disabled: boolean; onPull?: () => void };
@@ -57,7 +95,7 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
   let height = 1;
   let startX = 0;
   let startY = 0;
-  let viewHeight = 4.6;
+  let restingBounds = new Box3();
   let offset = new Vector3();
   let returnStart = 0;
   let returnOffset: Vector3 | null = null;
@@ -112,13 +150,19 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
     const box = canvas.getBoundingClientRect();
     width = Math.max(1, box.width);
     height = Math.max(1, box.height);
-    viewHeight = Math.max(4.6, 4.6 / (width / height));
+    const viewHeight = Math.max(4.6, 4.6 / (width / height));
     const viewWidth = (viewHeight * width) / height;
     camera.left = -viewWidth / 2;
     camera.right = viewWidth / 2;
     camera.top = viewHeight / 2;
     camera.bottom = -viewHeight / 2;
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+    model.setPull(new Vector3());
+    model.root.updateMatrixWorld(true);
+    // 0.08 여유에는 고리 아래의 줄 끝/손잡이 두께도 포함한다.
+    restingBounds = new Box3().setFromObject(model.ring).expandByScalar(0.08);
+    model.setPull(offset);
     renderer.setSize(width, height, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     loop.invalidate();
@@ -171,13 +215,13 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
       return;
     }
     const distance = pull.move(event.pointerId, event.clientX, event.clientY);
-    const delta = new Vector3(event.clientX - startX, startY - event.clientY, 0);
-    const length = delta.length();
-    // 제출 문턱은 실제 화면 거리. 시각적 이동은 카메라 안쪽의 안전 범위로 제한한다.
-    offset =
-      length === 0
-        ? delta
-        : delta.multiplyScalar(Math.min(0.65, (distance / MAX_PULL_DISTANCE) * 0.65) / length);
+    offset = getSafePullOffset(
+      new Vector2(event.clientX - startX, event.clientY - startY),
+      distance,
+      camera,
+      model.root,
+      restingBounds,
+    );
     if (reducedMotion.matches) offset.multiplyScalar(0.12);
     loop.invalidate();
   };
@@ -190,6 +234,32 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
   };
   const cancel = (event: PointerEvent) => {
     if (event.pointerId === activePointer) reset();
+  };
+  const keydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      reset();
+      return;
+    }
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (!pull.beginKeyboard(event.key, event.repeat, options.getState().disabled)) return;
+    returnOffset = null;
+    offset = getSafePullOffset(
+      new Vector2(1, 0),
+      MAX_PULL_DISTANCE,
+      camera,
+      model.root,
+      restingBounds,
+    );
+    if (reducedMotion.matches) offset.multiplyScalar(0.12);
+    loop.invalidate();
+  };
+  const keyup = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (!pull.releaseKeyboard(event.key, options.getState().disabled)) return;
+    reset();
+    if (!options.getState().disabled) options.getState().onPull?.();
   };
   const visibility = () => {
     if (document.hidden) reset();
@@ -216,6 +286,9 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
     if (activePointer !== null && canvas.hasPointerCapture(activePointer))
       canvas.releasePointerCapture(activePointer);
     activePointer = null;
+    canvas.removeEventListener('keydown', keydown);
+    canvas.removeEventListener('keyup', keyup);
+    canvas.removeEventListener('blur', reset);
     canvas.removeEventListener('pointerdown', down);
     canvas.removeEventListener('pointermove', move);
     canvas.removeEventListener('pointerup', up);
@@ -234,6 +307,9 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
     destroy();
     options.onFailure();
   };
+  canvas.addEventListener('keydown', keydown);
+  canvas.addEventListener('keyup', keyup);
+  canvas.addEventListener('blur', reset);
   canvas.addEventListener('pointerdown', down);
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up);

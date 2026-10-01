@@ -67,13 +67,16 @@ const ConchScene = ({ disabled = false, onPull, className }: ConchSceneProps) =>
       style={{ position: 'relative', width: '100%', height: '100%' }}
     >
       {status === 'failed' ? (
-        <ConchFallback />
+        <ConchFallback disabled={disabled} onPull={onPull} />
       ) : (
         <canvas
           ref={canvasRef}
           data-testid="conch-canvas"
-          aria-label="연보라색 소라고동. 오른쪽 위의 민트색 고리를 잡고 당긴 뒤 놓으세요. 키보드는 질문 버튼을 이용하세요."
-          role="img"
+          className="conch-ring-control"
+          aria-label="소라고동 고리 당기기"
+          aria-disabled={disabled || status !== 'ready'}
+          tabIndex={disabled || status !== 'ready' ? -1 : 0}
+          role="button"
           style={{
             display: 'block',
             width: '100%',
