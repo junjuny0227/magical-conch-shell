@@ -5,6 +5,7 @@ import { AppError } from '@/shared/lib/server';
 
 import 'server-only';
 import type { ConchAnswerType } from '../model/question';
+import { CONCH_DAILY_LIMIT, type ConchUsageType } from '../model/usage';
 
 export interface RedisBoundaryType {
   eval: (script: string, keys: string[], args: string[]) => Promise<unknown>;
@@ -41,7 +42,7 @@ local cooldown = KEYS[2] .. ':cooldown'
 local globalDaily = KEYS[3] .. ':day:' .. day
 local remaining = redis.call('TTL', cooldown)
 if remaining > 0 then return {'limited', tostring(remaining)} end
-if tonumber(redis.call('GET', userDaily) or '0') >= 30 then return {'limited', tostring(reset)} end
+if tonumber(redis.call('GET', userDaily) or '0') >= ${CONCH_DAILY_LIMIT} then return {'limited', tostring(reset)} end
 if tonumber(redis.call('GET', globalDaily) or '0') >= 9500 then return {'limited', tostring(reset)} end
 redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now)
 if redis.call('ZCARD', KEYS[4]) >= 5 then return {'limited', '60'} end
@@ -67,17 +68,72 @@ if state ~= 'uncertain' then redis.call('ZREM', KEYS[2], ARGV[1]) end
 return 1
 `;
 
+/** 예약과 같은 Redis 시계·KST 날짜·사용자 키를 조회하며 예산이나 TTL을 변경하지 않는다. */
+export const USAGE_SCRIPT = `
+local clock = redis.call('TIME')
+local seconds = tonumber(clock[1])
+local day = math.floor((seconds + 32400) / 86400)
+local reset = (day + 1) * 86400 - 32400 - seconds
+local used = tonumber(redis.call('GET', KEYS[1] .. ':day:' .. day) or '0')
+if not used or used < 0 or used > ${CONCH_DAILY_LIMIT} or used ~= math.floor(used) then
+  return redis.error_reply('Invalid conch usage')
+end
+local cooldown = redis.call('TTL', KEYS[1] .. ':cooldown')
+if cooldown == -2 then cooldown = 0 end
+if cooldown < 0 or cooldown > 10 then return redis.error_reply('Invalid conch cooldown') end
+return {used, cooldown, reset}
+`;
+
+const userKeyFor = (prefix: string, userId: string) =>
+  `${prefix}:{conch}:user:${createHash('sha256').update(userId).digest('hex')}`;
+
 const keysFor = (input: ReservationInputType) => {
   const root = `${input.prefix}:{conch}`;
   const userHash = createHash('sha256').update(input.userId).digest('hex');
   return [
     `${root}:request:${userHash}:${input.requestId}`,
-    `${root}:user:${userHash}`,
+    userKeyFor(input.prefix, input.userId),
     `${root}:global`,
     `${root}:slots`,
   ];
 };
 const unavailable = () => new AppError(503, 'SERVICE_UNAVAILABLE', '잠시 후 다시 시도해 주세요.');
+
+export const getConchUsage = async (
+  redis: RedisBoundaryType,
+  prefix: string,
+  userId: string,
+): Promise<ConchUsageType> => {
+  let response: unknown;
+  try {
+    response = await redis.eval(USAGE_SCRIPT, [userKeyFor(prefix, userId)], []);
+  } catch {
+    throw unavailable();
+  }
+  if (!Array.isArray(response) || response.length !== 3) throw unavailable();
+  const values = Array.from(response, (value: unknown) => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+    return NaN;
+  });
+  const [used, cooldown, reset] = values;
+  if (
+    !values.every(Number.isSafeInteger) ||
+    used < 0 ||
+    used > CONCH_DAILY_LIMIT ||
+    cooldown < 0 ||
+    cooldown > 10 ||
+    reset < 1 ||
+    reset > 86400
+  )
+    throw unavailable();
+  return {
+    dailyLimit: CONCH_DAILY_LIMIT,
+    remaining: CONCH_DAILY_LIMIT - used,
+    retryAfterSeconds: used === CONCH_DAILY_LIMIT ? reset : cooldown,
+    resetAfterSeconds: reset,
+  };
+};
 
 export const reserveRequest = async (
   redis: RedisBoundaryType,
