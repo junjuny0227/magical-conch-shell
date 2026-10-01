@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 
 import './globals.css';
+import AppAnalytics from './analytics';
 import TanStackProvider from './providers';
 
 export const metadata: Metadata = {
@@ -27,6 +28,7 @@ const RootLayout = ({
     <html lang="ko">
       <body>
         <TanStackProvider>{children}</TanStackProvider>
+        <AppAnalytics />
       </body>
     </html>
   );

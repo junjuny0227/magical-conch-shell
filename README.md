@@ -49,6 +49,13 @@ DataGSM client에는 `datagsm:self_read` 권한이 필요합니다. 운영·prev
 - 이번 범위는 manifest·홈 화면 아이콘·테마 설정입니다. 서비스 워커와 오프라인 캐시는 사용하지 않으며 로그인·질문 API 응답을 별도 저장하지 않습니다. 푸시 알림도 없습니다.
 - 아이콘 원본은 `src/app/icon.svg`입니다. 수정 후 `pnpm exec playwright install chromium`과 `node scripts/generate-pwa-icons.mjs`로 PNG를 다시 생성합니다. 배포 빌드에서는 브라우저나 추가 패키지 없이 생성된 정적 파일을 사용합니다.
 
+## 방문 분석 (Vercel Web Analytics)
+
+- 루트 layout에 `@vercel/analytics/next`를 연결합니다. 화면 조회는 `/`와 `/login`만 허용하며 query·hash는 전송 전에 제거합니다.
+- 질문 내용·답변·DataGSM 프로필·OAuth code/state를 custom event로 보내지 않습니다. API 경로와 기타 경로의 이벤트도 차단합니다.
+- Vercel 대시보드에서 프로젝트의 **Analytics → Enable**을 선택한 뒤 이 코드가 포함된 배포를 진행합니다. 설정만 켜고 기존 배포를 유지하면 수집 경로가 반영되지 않을 수 있습니다.
+- 배포된 사이트를 방문하고 Analytics 대시보드에서 실제 수집을 확인합니다. 로컬에서는 SDK 연결·이벤트 필터를 검증하며 운영 데이터 수집 성공과 구분합니다.
+
 ## 구조
 
 ```text
