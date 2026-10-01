@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { ConchScene } from '@/entities/conch';
@@ -17,13 +16,7 @@ const LoginView = () => {
   const code = params.get('error');
   const message = code ? (LOGIN_ERRORS[code] ?? '로그인하지 못했어요. 다시 시도해 주세요.') : null;
   return (
-    <div className="conch-app">
-      <header className="conch-header">
-        <Link className="conch-brand" href="/">
-          ◉ 마법의 소라고동
-        </Link>
-        <span className="conch-school-label">우리 학교만의 작은 바다</span>
-      </header>
+    <div className="conch-app conch-login-app">
       <main className="conch-main conch-login-main">
         <section className="conch-model-section">
           <h1>
@@ -54,11 +47,6 @@ const LoginView = () => {
               {message}
             </p>
           )}
-          <p className="conch-disclaimer">
-            로그인은 1시간 동안 유지돼요.
-            <br />
-            DataGSM 비밀번호는 이 앱에서 받거나 저장하지 않아요.
-          </p>
         </section>
       </main>
     </div>

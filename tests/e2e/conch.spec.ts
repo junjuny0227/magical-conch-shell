@@ -14,9 +14,10 @@ test('로그인이 필요한 이용자는 질문을 제출할 수 없다', async
     }),
   );
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '마법의 소라고동' })).toBeVisible();
+  await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('link', { name: 'DataGSM으로 로그인' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '소라고동에게 묻기' })).toBeDisabled();
+  await expect(page.getByLabel('소라고동에게 물어볼 질문')).toHaveCount(0);
+  await expect(page.getByRole('banner')).toHaveCount(0);
 });
 
 test('질문 한 번 제출은 한 번의 호출로 답변을 표시한다', async ({ page }) => {
@@ -29,7 +30,10 @@ test('질문 한 번 제출은 한 번의 호출로 답변을 표시한다', asy
   });
   await page.goto('/');
   await page.getByLabel('소라고동에게 물어볼 질문').fill('지금 숙제를 해야 할까요?');
-  await page.getByRole('button', { name: '소라고동에게 묻기' }).click();
+  await expect(page.getByRole('button', { name: '소라고동에게 묻기' })).toHaveCount(0);
+  const ring = page.getByRole('button', { name: '소라고동 고리 당기기' });
+  await ring.focus();
+  await ring.press('Enter');
   await expect(page.getByTestId('conch-result')).toContainText('아니.');
   expect(calls).toBe(1);
 });
@@ -44,7 +48,9 @@ test('API 오류는 정상 대사로 숨기지 않고 질문을 유지한다', a
   );
   await page.goto('/');
   await page.getByLabel('소라고동에게 물어볼 질문').fill('오늘 산책할까요?');
-  await page.getByRole('button', { name: '소라고동에게 묻기' }).click();
+  const ring = page.getByRole('button', { name: '소라고동 고리 당기기' });
+  await ring.focus();
+  await ring.press('Enter');
   await expect(page.getByTestId('conch-result')).toContainText('잠시 사용할 수 없어요.');
   await expect(page.getByTestId('conch-result')).toHaveClass(/\bconch-result-error\b/);
   await expect(page.getByLabel('소라고동에게 물어볼 질문')).toHaveValue('오늘 산책할까요?');
@@ -106,7 +112,7 @@ test('WebGL 실패 뒤 정적 대체 화면과 키보드 질문이 동작한다'
   await expect(page.getByTestId('conch-fallback')).toBeVisible();
   await expect(page.getByTestId('conch-canvas')).toHaveCount(0);
   await page.getByLabel('소라고동에게 물어볼 질문').fill('내일로 미룰까요?');
-  const button = page.getByRole('button', { name: '소라고동에게 묻기' });
+  const button = page.getByRole('button', { name: '소라고동 고리 당기기' });
   await button.focus();
   await button.press('Enter');
   await expect(page.getByTestId('conch-result')).toContainText('아니.');
