@@ -176,7 +176,7 @@ export const createConchScene = (canvas: HTMLCanvasElement, options: SceneOption
     model.root.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
     ray.setFromCamera(pointer, camera);
-    return ray.intersectObject(model.ring, false).length > 0;
+    return ray.intersectObject(model.ring, true).length > 0;
   };
   const down = (event: PointerEvent) => {
     if (

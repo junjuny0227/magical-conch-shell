@@ -1,9 +1,12 @@
 import {
+  CircleGeometry,
   CylinderGeometry,
   DataTexture,
   DoubleSide,
   Group,
+  type Material,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   RGBAFormat,
   SphereGeometry,
@@ -84,6 +87,13 @@ export const createConchModel = () => {
   const restingRing = new Vector3(1.09, 1.1, 0.39);
   ring.position.copy(restingRing);
   ring.name = 'pull-ring';
+  // 시각적인 구멍은 유지하면서 중앙과 작은 외곽 여유도 잡을 수 있게 한다.
+  const ringHitArea = new Mesh(
+    new CircleGeometry(0.3, 48),
+    new MeshBasicMaterial({ visible: false, side: DoubleSide }),
+  );
+  ringHitArea.name = 'pull-ring-hit-area';
+  ring.add(ringHitArea);
   root.add(ring);
   const stem = new Mesh(new CylinderGeometry(0.069, 0.078, 0.22, 20), mint);
   stem.position.set(1.06, 0.87, 0.39);
@@ -111,7 +121,7 @@ export const createConchModel = () => {
     if (disposed) return;
     disposed = true;
     const geometrySet = new Set();
-    const materialSet = new Set<MeshStandardMaterial>();
+    const materialSet = new Set<Material>();
     root.traverse((object) => {
       if (object instanceof Mesh) {
         if (!geometrySet.has(object.geometry)) {
@@ -119,7 +129,7 @@ export const createConchModel = () => {
           geometrySet.add(object.geometry);
         }
         for (const material of Array.isArray(object.material) ? object.material : [object.material])
-          materialSet.add(material as MeshStandardMaterial);
+          materialSet.add(material);
       }
     });
     materialSet.forEach((material) => material.dispose());
