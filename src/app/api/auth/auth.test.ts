@@ -66,6 +66,88 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('OAuth 콜백과 앱 인증 라우트', () => {
+  it('isLeaveSchool이 없는 현재 userinfo 형태로도 세션을 만들고 홈으로 이동한다', async () => {
+    boundary.fetch
+      .mockReset()
+      .mockResolvedValueOnce(
+        Response.json({
+          access_token: 'test-access-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          ...student,
+          student: { name: student.student.name, role: 'GENERAL_STUDENT' },
+        }),
+      );
+    const response = await callback(callbackRequest());
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('https://conch.example/');
+    expect(boundary.set).toHaveBeenCalledWith(
+      expect.stringMatching(/:session:[a-f0-9]{64}$/),
+      expect.objectContaining({
+        user: { id: '1', name: student.student.name, objectType: 'STUDENT' },
+      }),
+      { ex: 3600 },
+    );
+    expect(JSON.stringify(boundary.set.mock.calls)).not.toContain('test-access-token');
+  });
+  it.each([
+    [0, 'TOKEN_FORBIDDEN'],
+    [1, 'USERINFO_FORBIDDEN'],
+  ])('개발 환경에서 외부 403의 실패 단계를 구분한다', async (failedStep, reason) => {
+    vi.stubEnv('NODE_ENV', 'development');
+    boundary.fetch.mockReset();
+    if (failedStep === 1)
+      boundary.fetch.mockResolvedValueOnce(
+        Response.json({ access_token: 'private-token', token_type: 'Bearer', expires_in: 3600 }),
+      );
+    boundary.fetch.mockResolvedValueOnce(new Response('private-provider-body', { status: 403 }));
+    const response = await callback(callbackRequest());
+    const location = new URL(response.headers.get('location')!);
+    expect(location.searchParams.get('error')).toBe('ACCESS_DENIED');
+    expect(location.searchParams.get('reason')).toBe(reason);
+    expect(location.href).not.toContain('private');
+    expect(boundary.set).not.toHaveBeenCalled();
+  });
+  it('개발 환경에서 callback 출처 불일치를 구분한다', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const response = await callback(callbackRequest(undefined, 'https://evil.example'));
+    expect(new URL(response.headers.get('location')!).searchParams.get('reason')).toBe(
+      'CALLBACK_ORIGIN_MISMATCH',
+    );
+  });
+  it('개발 환경에서 계정 자격 검사 사유를 구분한다', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    boundary.fetch
+      .mockReset()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'private-token', token_type: 'Bearer', expires_in: 3600 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ ...student, student: { ...student.student, role: 'GRADUATE' } }),
+      );
+    const response = await callback(callbackRequest());
+    expect(new URL(response.headers.get('location')!).searchParams.get('reason')).toBe(
+      'STUDENT_ROLE_INVALID',
+    );
+    expect(boundary.set).not.toHaveBeenCalled();
+  });
+  it('운영 환경에는 거절 세부 사유를 노출하지 않는다', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    boundary.fetch
+      .mockReset()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'private-token', token_type: 'Bearer', expires_in: 3600 }),
+      )
+      .mockResolvedValueOnce(Response.json({ ...student, status: 'PENDING' }));
+    const response = await callback(callbackRequest());
+    const location = new URL(response.headers.get('location')!);
+    expect(location.searchParams.get('error')).toBe('ACCESS_DENIED');
+    expect(location.searchParams.has('reason')).toBe(false);
+  });
   it('토큰 endpoint의 client 인증 실패는 앱 재로그인이 아니라 서비스 장애다', async () => {
     boundary.fetch
       .mockReset()

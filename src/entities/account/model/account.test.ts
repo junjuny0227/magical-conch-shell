@@ -10,6 +10,60 @@ const student = {
 };
 describe('서버 계정 자격과 세션 검증', () => {
   it.each(['GENERAL_STUDENT', 'STUDENT_COUNCIL', 'DORMITORY_MANAGER'])(
+    '현재 userinfo DTO처럼 isLeaveSchool이 없어도 재학생 역할 %s는 허용한다',
+    (role) => {
+      expect(
+        accountFromUserInfo({
+          ...student,
+          student: { name: student.student.name, role },
+        }),
+      ).toEqual({ id: '1', name: student.student.name, objectType: 'STUDENT' });
+    },
+  );
+  it.each(['GRADUATE', 'WITHDRAWN', 'ADMIN', '', undefined])(
+    'isLeaveSchool이 없어도 재학생이 아닌 역할 %s는 거부한다',
+    (role) => {
+      expect(() =>
+        accountFromUserInfo({
+          ...student,
+          student: { name: student.student.name, role },
+        }),
+      ).toThrow(expect.objectContaining({ code: 'ACCESS_DENIED' }));
+    },
+  );
+  it.each([true, null, undefined, 'false', 0])(
+    'isLeaveSchool이 제공되면 boolean false 이외의 값 %s는 거부한다',
+    (isLeaveSchool) => {
+      expect(() =>
+        accountFromUserInfo({
+          ...student,
+          student: { ...student.student, isLeaveSchool },
+        }),
+      ).toThrow(expect.objectContaining({ cause: 'STUDENT_ENROLLMENT_INVALID' }));
+    },
+  );
+  it.each([
+    [null, 'ACCOUNT_FORMAT_INVALID'],
+    [{ ...student, status: 'PENDING' }, 'ACCOUNT_STATUS_INVALID'],
+    [{ ...student, id: '1' }, 'ACCOUNT_ID_INVALID'],
+    [{ ...student, objectType: 'OTHER' }, 'ACCOUNT_TYPE_INVALID'],
+    [{ ...student, student: null }, 'ACCOUNT_DETAILS_MISSING'],
+    [{ ...student, student: { ...student.student, name: '' } }, 'ACCOUNT_NAME_INVALID'],
+    [
+      { ...student, student: { ...student.student, isLeaveSchool: true } },
+      'STUDENT_ENROLLMENT_INVALID',
+    ],
+    [{ ...student, student: { ...student.student, role: 'GRADUATE' } }, 'STUDENT_ROLE_INVALID'],
+  ])('거절 원문 대신 고정된 진단 사유만 제공한다', (data, reason) => {
+    expect(() => accountFromUserInfo(data)).toThrow(
+      expect.objectContaining({
+        status: 403,
+        code: 'ACCESS_DENIED',
+        cause: reason,
+      }),
+    );
+  });
+  it.each(['GENERAL_STUDENT', 'STUDENT_COUNCIL', 'DORMITORY_MANAGER'])(
     '현재 학생 %s 허용',
     (role) => {
       expect(accountFromUserInfo({ ...student, student: { ...student.student, role } })).toEqual({

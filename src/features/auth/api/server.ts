@@ -131,7 +131,9 @@ const providerJson = async (url: string, init: RequestInit): Promise<unknown> =>
     if (!response.ok) {
       if (response.status === 401 && init.method === 'POST') throw serviceUnavailable();
       if (response.status === 403)
-        throw new AppError(403, 'ACCESS_DENIED', '이용할 수 없는 계정입니다.');
+        throw Object.assign(new AppError(403, 'ACCESS_DENIED', '이용할 수 없는 계정입니다.'), {
+          cause: init.method === 'POST' ? 'TOKEN_FORBIDDEN' : 'USERINFO_FORBIDDEN',
+        });
       if (response.status === 400 || response.status === 401) throw authRequired();
       throw new AppError(502, 'UPSTREAM_ERROR', '인증 서비스 응답을 처리하지 못했습니다.');
     }
@@ -174,7 +176,9 @@ export const finishLogin = async (request: Request): Promise<NextResponse> => {
     try {
       const url = new URL(request.url);
       if (url.origin !== config.appOrigin || url.pathname !== '/api/auth/callback')
-        throw new AppError(403, 'ACCESS_DENIED', '허용되지 않은 요청입니다.');
+        throw Object.assign(new AppError(403, 'ACCESS_DENIED', '허용되지 않은 요청입니다.'), {
+          cause: 'CALLBACK_ORIGIN_MISMATCH',
+        });
       const id = store.get(TRANSACTION_COOKIE)?.value;
       if (!validId(id)) throw authRequired();
       // 검증 실패도 거래를 소비하므로 같은 거래를 재사용할 수 없다.
@@ -222,7 +226,30 @@ export const finishLogin = async (request: Request): Promise<NextResponse> => {
         error instanceof AppError && allowedCodes.includes(error.code)
           ? error.code
           : 'INTERNAL_ERROR';
-      return appRedirect(config.appOrigin, `/login?error=${code}`);
+      const params = new URLSearchParams({ error: code });
+      // 개발 진단에는 원문 응답/개인정보가 아닌 고정된 실패 지점만 포함한다.
+      const diagnosticReasons = [
+        'CALLBACK_ORIGIN_MISMATCH',
+        'TOKEN_FORBIDDEN',
+        'USERINFO_FORBIDDEN',
+        'ACCOUNT_FORMAT_INVALID',
+        'ACCOUNT_STATUS_INVALID',
+        'ACCOUNT_ID_INVALID',
+        'ACCOUNT_TYPE_INVALID',
+        'ACCOUNT_DETAILS_MISSING',
+        'ACCOUNT_NAME_INVALID',
+        'STUDENT_ENROLLMENT_INVALID',
+        'STUDENT_ROLE_INVALID',
+      ];
+      if (
+        process.env.NODE_ENV === 'development' &&
+        error instanceof AppError &&
+        code === 'ACCESS_DENIED' &&
+        typeof error.cause === 'string' &&
+        diagnosticReasons.includes(error.cause)
+      )
+        params.set('reason', error.cause);
+      return appRedirect(config.appOrigin, `/login?${params}`);
     } finally {
       store.set(TRANSACTION_COOKIE, '', { ...cookieOptions(config.appOrigin), maxAge: 0 });
     }

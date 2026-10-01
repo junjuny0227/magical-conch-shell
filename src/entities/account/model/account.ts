@@ -17,26 +17,32 @@ export const isAccount = (value: unknown): value is AccountType =>
   validName(value.name) &&
   (value.objectType === 'STUDENT' || value.objectType === 'TEACHER');
 export const accountFromUserInfo = (data: unknown): AccountType => {
-  const denied = () =>
-    new AppError(403, 'ACCESS_DENIED', '재학생과 승인 완료 선생님만 이용할 수 있습니다.');
-  if (
-    !isRecord(data) ||
-    data.status !== 'ACTIVE' ||
-    typeof data.id !== 'number' ||
-    !Number.isSafeInteger(data.id) ||
-    data.id <= 0
-  )
-    throw denied();
+  const denied = (reason: string) => {
+    const error = new AppError(
+      403,
+      'ACCESS_DENIED',
+      '재학생과 승인 완료 선생님만 이용할 수 있습니다.',
+    );
+    error.cause = reason;
+    return error;
+  };
+  if (!isRecord(data)) throw denied('ACCOUNT_FORMAT_INVALID');
+  if (data.status !== 'ACTIVE') throw denied('ACCOUNT_STATUS_INVALID');
+  if (typeof data.id !== 'number' || !Number.isSafeInteger(data.id) || data.id <= 0)
+    throw denied('ACCOUNT_ID_INVALID');
   const objectType = data.objectType;
-  if (objectType !== 'STUDENT' && objectType !== 'TEACHER') throw denied();
+  if (objectType !== 'STUDENT' && objectType !== 'TEACHER') throw denied('ACCOUNT_TYPE_INVALID');
   const details = objectType === 'STUDENT' ? data.student : data.teacher;
-  if (!isRecord(details) || !validName(details.name)) throw denied();
-  if (
-    objectType === 'STUDENT' &&
-    (details.isLeaveSchool !== false ||
-      !['GENERAL_STUDENT', 'STUDENT_COUNCIL', 'DORMITORY_MANAGER'].includes(String(details.role)))
-  )
-    throw denied();
+  if (!isRecord(details)) throw denied('ACCOUNT_DETAILS_MISSING');
+  if (!validName(details.name)) throw denied('ACCOUNT_NAME_INVALID');
+  if (objectType === 'STUDENT') {
+    // 현재 userinfo DTO는 role로 재학 상태를 제공하며 isLeaveSchool은 생략한다.
+    // 이전 계약의 필드가 제공되는 경우에만 엄격한 boolean 검증을 유지한다.
+    if (Object.hasOwn(details, 'isLeaveSchool') && details.isLeaveSchool !== false)
+      throw denied('STUDENT_ENROLLMENT_INVALID');
+    if (!['GENERAL_STUDENT', 'STUDENT_COUNCIL', 'DORMITORY_MANAGER'].includes(String(details.role)))
+      throw denied('STUDENT_ROLE_INVALID');
+  }
   return { id: String(data.id), name: details.name.trim(), objectType };
 };
 export const parseSession = (data: unknown, now = Date.now()): SessionType | null => {
