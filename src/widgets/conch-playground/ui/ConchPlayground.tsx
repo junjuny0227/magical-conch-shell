@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { ConchScene } from '@/entities/conch';
-import { usePostConchAnswer } from '@/features/ask-conch';
+import {
+  CONCH_DAILY_LIMIT,
+  useGetConchUsage,
+  usePostConchAnswer,
+  useRetryCountdown,
+} from '@/features/ask-conch';
 import { isAuthRequired, useGetSession, usePostLogout } from '@/features/auth';
 import { AppApiError } from '@/shared/api';
 import { cn } from '@/shared/lib';
@@ -16,6 +21,8 @@ const ConchPlayground = () => {
   const [validation, setValidation] = useState('');
   const [answer, setAnswer] = useState('');
   const [failure, setFailure] = useState('');
+  const [rateLimited, setRateLimited] = useState(false);
+  const [retryUntil, setRetryUntil] = useState(0);
   const [needsLogin, setNeedsLogin] = useState(false);
   const inFlight = useRef(false);
   const revision = useRef(0);
@@ -23,6 +30,20 @@ const ConchPlayground = () => {
   const logout = usePostLogout();
   const mutation = usePostConchAnswer();
   const loggedIn = Boolean(session.data) && !needsLogin && !session.isError;
+  const usage = useGetConchUsage(loggedIn ? session.data?.user.id : undefined);
+  const retryDeadline = Math.max(
+    retryUntil,
+    usage.data?.retryAfterSeconds ? usage.dataUpdatedAt + usage.data.retryAfterSeconds * 1000 : 0,
+  );
+  const waitSeconds = useRetryCountdown(retryDeadline);
+  const dailyExhausted = !usage.isError && usage.data?.remaining === 0;
+  const failureMessage = rateLimited
+    ? dailyExhausted
+      ? '오늘 질문 횟수를 모두 사용했어요. 한국 시간 자정에 초기화돼요.'
+      : waitSeconds > 0
+        ? `잠시 기다린 뒤 다시 질문해 주세요. (${waitSeconds}초 남음)`
+        : '다시 질문할 수 있어요.'
+    : failure;
   const pending = mutation.isPending;
   const canSubmit =
     loggedIn && !pending && question.trim().length > 0 && question.trim().length <= 300;
@@ -30,6 +51,12 @@ const ConchPlayground = () => {
 
   const handleAsk = async () => {
     if (inFlight.current) return;
+    if (waitSeconds > 0 || dailyExhausted) {
+      setAnswer('');
+      setFailure('잠시 기다린 뒤 다시 질문해 주세요.');
+      setRateLimited(true);
+      return;
+    }
     if (!loggedIn) {
       setNeedsLogin(true);
       return;
@@ -44,11 +71,18 @@ const ConchPlayground = () => {
     setAnswer('');
     setFailure('');
     setValidation('');
+    setRateLimited(false);
     try {
       const result = await mutation.mutateAsync({ question: question.trim(), requestId });
       if (revision.current === currentRevision) setAnswer(result.answerText);
     } catch (error) {
       if (revision.current === currentRevision) {
+        if (error instanceof AppApiError && error.code === 'RATE_LIMITED') {
+          if (Number.isSafeInteger(error.retryAfterSeconds) && (error.retryAfterSeconds ?? 0) > 0) {
+            setRateLimited(true);
+            setRetryUntil(Date.now() + Math.min(error.retryAfterSeconds!, 86400) * 1000);
+          }
+        }
         setFailure(
           error instanceof AppApiError
             ? error.message
@@ -112,7 +146,7 @@ const ConchPlayground = () => {
             {pending ? (
               <p className="conch-result-wait">답변을 기다리고 있어요.</p>
             ) : failure ? (
-              <p className="conch-result-wait">{failure}</p>
+              <p className="conch-result-wait">{failureMessage}</p>
             ) : answer ? (
               <p className="conch-answer">“{answer}”</p>
             ) : null}
@@ -126,7 +160,11 @@ const ConchPlayground = () => {
               value={question}
               maxLength={300}
               placeholder="지금 숙제를 해야 할까요?"
-              aria-describedby={validation ? 'question-hint question-error' : 'question-hint'}
+              aria-describedby={
+                validation
+                  ? 'question-hint question-usage question-error'
+                  : 'question-hint question-usage'
+              }
               aria-invalid={Boolean(validation)}
               disabled={pending}
               onChange={(event) => {
@@ -140,6 +178,26 @@ const ConchPlayground = () => {
             <p id="question-hint" className="mt-2 text-center text-sm text-[var(--conch-muted)]">
               질문을 입력하고 고리를 당겨 주세요.
             </p>
+            <p
+              id="question-usage"
+              className="mt-1 text-center text-sm text-[var(--conch-muted)]"
+              data-testid="conch-usage"
+            >
+              하루 최대 {usage.data?.dailyLimit ?? CONCH_DAILY_LIMIT}회 ·{' '}
+              {usage.isError
+                ? '남은 횟수 확인 불가'
+                : usage.isPending || usage.isFetching
+                  ? '남은 횟수 확인 중…'
+                  : `오늘 남은 질문 ${usage.data.remaining}회`}
+            </p>
+            {usage.isError && (
+              <div className="text-center">
+                <button className="conch-text-button" onClick={() => void usage.refetch()}>
+                  횟수 다시 확인
+                </button>
+              </div>
+            )}
+
             <p id="question-error" className="conch-error">
               {validation}
             </p>

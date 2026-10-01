@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ requestApp: vi.fn(), useMutation: vi.fn((options) => options) }));
-vi.mock('@tanstack/react-query', () => ({ useMutation: mocks.useMutation }));
+vi.mock('@tanstack/react-query', () => ({
+  useMutation: mocks.useMutation,
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}));
 vi.mock('@/shared/api', () => ({ requestApp: mocks.requestApp }));
 
 import { usePostConchAnswer } from './usePostConchAnswer';

@@ -28,7 +28,10 @@ for (const [width, height] of [
     await expect(
       page.getByText('질문을 입력하고 고리를 당겨 주세요.', { exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole('textbox')).toHaveAttribute('aria-describedby', 'question-hint');
+    await expect(page.getByRole('textbox')).toHaveAttribute(
+      'aria-describedby',
+      'question-hint question-usage',
+    );
     await expect(page.getByTestId('conch-stage')).toBeVisible();
     await expect(page.getByTestId('conch-stage')).toHaveAttribute(
       'data-scene-state',
